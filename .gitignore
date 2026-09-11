@@ -23,3 +23,10 @@ __pycache__/
 *.log
 .env
 .env.*
+
+# supersr 构建产物
+/bin/
+*.so
+*.dylib
+*.dll
+*.a
