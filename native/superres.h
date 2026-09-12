@@ -41,6 +41,10 @@ typedef struct sr_context sr_context;
 /*
  * sr_version 返回 ABI 版本与后端描述字符串，例如
  * "ref-bilinear ABIv1"。返回的字符串由后端持有，调用方不得释放。
+ *
+ * 命名约定：仅供开发/测试、不执行 AI 推理的占位或参考后端必须以
+ * "ref-" 前缀开头（如 "ref-bilinear ABIv1"）；真实推理引擎的版本串
+ * 不得使用该前缀，以便调用方（如 cmd/sr）识别并提示当前并非 AI 超分。
  */
 SR_EXPORT const char *sr_version(void);
 

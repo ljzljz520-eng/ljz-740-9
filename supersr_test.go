@@ -95,8 +95,13 @@ func TestLibraryNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Open(model, WithLibrary(filepath.Join(t.TempDir(), "libnope.so")))
-	if !errors.Is(err, ErrLibraryNotFound) {
-		t.Fatalf("want ErrLibraryNotFound, got %v", err)
+	// CGO 禁用时根本无法 dlopen，错误类别优先收敛为 ErrCGODisabled。
+	want := ErrLibraryNotFound
+	if !cgoEnabled {
+		want = ErrCGODisabled
+	}
+	if !errors.Is(err, want) {
+		t.Fatalf("want %v, got %v", want, err)
 	}
 }
 

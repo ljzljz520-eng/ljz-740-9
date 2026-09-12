@@ -5,8 +5,13 @@
 **加载模型 → 传入图片 → 设置倍率 → 执行超分 → 返回 PNG 字节** 的完整流程。
 绑定层负责图片解码（PNG/JPEG/GIF）、RGBA 转换、内存管理与错误分类。
 
-> 仓库自带一个 **参考后端**（`native/ref_backend.c`，双线性放大，非 AI 推理），
+> 仓库自带一个 **参考后端**（`native/ref_backend.c`，双线性放大，**非 AI 推理**），
 > 用于开箱即用地演示与测试；真实引擎只需实现同一组 C 导出函数即可热替换。
+>
+> ⚠️ 开箱示例（`make demo`）加载的就是这个参考后端，输出只是双线性插值放大，
+> 不代表 AI 超分效果。运行时命令行会显著告警；真实使用请用 `-lib`
+> （或 `SUPERSR_LIBRARY`）指向 AI 推理引擎的动态库，也可加
+> `-require-inference` 在误加载参考后端时直接报错退出。
 
 ## 特性
 
@@ -63,8 +68,14 @@ echo "fake weights" > model.bin
 # 3. x2 超分，输出 PNG
 ./bin/sr -model model.bin -input photo.png -output photo_2x.png \
          -scale 2 -lib ./libsuperres.so -version
+# ⚠ 注意: 当前使用的是非 AI 推理的参考后端（版本 "ref-bilinear ABIv1"），输出仅为双线性插值放大。
+#   需要真实超分效果时，请用 -lib 指定 AI 推理动态库（Real-ESRGAN / Real-CUGAN / ncnn 等的 ABI 封装）。
 # 后端版本: ref-bilinear ABIv1
 # 完成: photo.png -> photo_2x.png (xxxx 字节, 倍率 x2, 后端 ref-bilinear ABIv1)
+
+# 4. 接入真实 AI 引擎后：参考后端告警消失；加 -require-inference 可防止误用参考库
+./bin/sr -model realesrgan-x4.bin -input photo.png -output photo_4x.png \
+         -scale 4 -lib /usr/local/lib/libsuperres_realesrgan.so -require-inference
 ```
 
 CLI 参数：
@@ -77,6 +88,9 @@ CLI 参数：
 | `-scale` | 倍率 2~8（默认 2，可运行期由库校验） |
 | `-lib` | 显式指定动态库路径（默认查 `SUPERSR_LIBRARY`、当前目录与系统路径） |
 | `-version` | 打印后端版本字符串 |
+| `-require-inference` | 加载到非 AI 推理的参考后端（版本串以 `ref-` 开头）时直接报错退出（退出码 2），防止误用 |
+
+加载参考后端时，命令行始终会先打印一条醒目告警，避免把双线性放大误认为 AI 超分。
 
 预期错误以退出码 **2** 区分（模型/图片/库问题），其他错误退出码 1。
 
@@ -131,7 +145,7 @@ if err := r.SetScale(2); err != nil { /* … */ }
 
 | 导出函数 | 职责 |
 | --- | --- |
-| `sr_version` | 返回 ABI/引擎版本字符串 |
+| `sr_version` | 返回 ABI/引擎版本字符串（真实引擎勿用 `ref-` 前缀；该前缀保留给非推理参考后端） |
 | `sr_create` | 打开模型、创建上下文（模型缺失返回 `SR_ERR_MODEL`） |
 | `sr_set_scale` | 切换倍率（不支持可返回 `SR_ERR_UNSUPPORTED`） |
 | `sr_process` | RGBA 输入 → RGBA 输出（输出用 `malloc` 分配并回填宽高/stride） |
@@ -152,6 +166,8 @@ Real-ESRGAN 的推理 API，编译成 `libsuperres.so`。
 make test          # CGO 测试（自动用 gcc 编译参考库）
 go test -race ./…  # 竞态检测
 CGO_ENABLED=0 go build ./...   # 无 CGO 构建验证
+CGO_ENABLED=0 go test ./...    # 无 CGO 测试：原生相关用例跳过，
+                               # 错误分类用例改为断言 ErrCGODisabled
 ```
 
 测试覆盖：候选库解析与优先级、模型不存在、库不存在、库缺符号、

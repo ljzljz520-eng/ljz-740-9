@@ -10,9 +10,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"supersr"
 )
+
+// refBackendVersionPrefix 是参考（非 AI 推理）后端的版本串约定前缀，
+// 与 native/superres.h 中 sr_version 的说明保持一致
+// （仓库自带后端报告 "ref-bilinear ABIv1"）。
+const refBackendVersionPrefix = "ref-"
 
 func main() {
 	model := flag.String("model", "", "模型文件路径（必填）")
@@ -21,6 +27,8 @@ func main() {
 	scale := flag.Int("scale", supersr.DefaultScale, "放大倍率（2~8）")
 	library := flag.String("lib", "", "原生动态库路径（可选，默认按 SUPERSR_LIBRARY / 系统路径查找）")
 	showVersion := flag.Bool("version", false, "打印后端版本后退出")
+	requireInference := flag.Bool("require-inference", false,
+		"要求加载真实 AI 推理后端；若加载到双线性参考后端则直接报错退出")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "sr - 本地图像超分命令行示例\n\n")
 		fmt.Fprintf(os.Stderr, "用法: %s -model 模型 -input 输入图 -output 输出图 [-scale 2] [-lib 动态库]\n\n", os.Args[0])
@@ -45,8 +53,25 @@ func main() {
 	}
 	defer r.Close()
 
+	backendVersion := r.Version()
+	if isReferenceBackend(backendVersion) {
+		if *requireInference {
+			fmt.Fprintf(os.Stderr,
+				"错误: 当前加载的是非 AI 推理的参考后端（版本 %q），仅做双线性放大。\n"+
+					"  请用 -lib 指定真实推理引擎的动态库（实现 native/superres.h ABI），或设置 SUPERSR_LIBRARY。\n",
+				backendVersion)
+			os.Exit(2)
+		}
+		// 防止开箱示例被误认为跑了 AI 超分：显著提示当前是参考后端，
+		// 并指明如何替换成真实引擎。
+		fmt.Fprintf(os.Stderr,
+			"⚠ 注意: 当前使用的是非 AI 推理的参考后端（版本 %q），输出仅为双线性插值放大。\n"+
+				"  需要真实超分效果时，请用 -lib 指定 AI 推理动态库（Real-ESRGAN / Real-CUGAN / ncnn 等的 ABI 封装）。\n\n",
+			backendVersion)
+	}
+
 	if *showVersion {
-		fmt.Printf("后端版本: %s\n", r.Version())
+		fmt.Printf("后端版本: %s\n", backendVersion)
 	}
 
 	pngBytes, err := r.ProcessFile(*input)
@@ -61,8 +86,14 @@ func main() {
 
 	inInfo, _ := os.Stat(*input)
 	fmt.Fprintf(os.Stderr, "完成: %s -> %s (%d 字节, 倍率 x%d, 后端 %s)\n",
-		*input, *output, len(pngBytes), r.Scale(), r.Version())
+		*input, *output, len(pngBytes), r.Scale(), backendVersion)
 	_ = inInfo
+}
+
+// isReferenceBackend 根据后端报告的版本串判断它是否为非 AI 推理的参考后端。
+// 真实引擎不应使用 "ref-" 前缀（见 native/superres.h 的 sr_version 约定）。
+func isReferenceBackend(version string) bool {
+	return strings.HasPrefix(strings.TrimSpace(version), refBackendVersionPrefix)
 }
 
 // fatal 把三类可预期错误翻译成清晰的中文提示，并使用退出码 2 区分

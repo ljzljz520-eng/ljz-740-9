@@ -16,6 +16,9 @@ var (
 	sharedLibErr    error
 )
 
+// cgoEnabled 供与构建标签无关的测试选择对应的预期错误类别。
+const cgoEnabled = true
+
 // buildTestLibraries 用系统 cc 编译参考后端与一个"空壳"共享库。
 // 若环境没有 C 编译器，测试会被 Skip。
 func buildTestLibraries(t *testing.T) (ref, dummy string) {
